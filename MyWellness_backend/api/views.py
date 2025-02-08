@@ -12,11 +12,12 @@ class SignupView(APIView):
         if serializer.is_valid():
             user_data = serializer.save()
             return Response({
+                'sucess':True,
                 'refresh': user_data['refresh'],
                 'access': user_data['access'],
                 'user_id': user_data['user_id']
             }, status=status.HTTP_201_CREATED)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        return Response({'success': False, 'errors': serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
 
 
 class SigninView(APIView):
@@ -24,4 +25,4 @@ class SigninView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        return Response({"message": "Logged in successfully"}, status=status.HTTP_200_OK)
+        return Response({'success': True,"message": "Logged in successfully"}, status=status.HTTP_200_OK)
