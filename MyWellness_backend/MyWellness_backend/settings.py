@@ -40,7 +40,13 @@ INSTALLED_APPS = [
 
     #User created apps
     'api',
+    'rest_framework',
+    'rest_framework_simplejwt',
 ]
+
+#for Customizing the User Model
+AUTH_USER_MODEL = 'api.CustomUser'
+
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
@@ -134,3 +140,11 @@ STATIC_URL = 'static/'
 # https://docs.djangoproject.com/en/5.1/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# for JWT authentication
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework_simplejwt.authentication.JWTAuthentication',  
+    ]
+}
+
