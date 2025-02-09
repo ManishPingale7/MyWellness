@@ -1,3 +1,4 @@
+from .models import ActivityData
 from rest_framework import serializers
 from rest_framework_simplejwt.tokens import RefreshToken
 from .models import CustomUser
@@ -53,6 +54,26 @@ class SleepDisorderSerializer(serializers.Serializer):
     bmi_category_cod = serializers.IntegerField()
     systolic = serializers.IntegerField()
     diastolic = serializers.IntegerField()
+
+
+class ActivityDataSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ActivityData
+        fields = [
+            'user_id',
+            'activity_date',
+            'total_steps',
+            'total_distance',
+            'very_active_distance',
+            'moderately_active_distance',
+            'light_active_distance',
+            'sedentary_active_distance',
+            'very_active_minutes',
+            'fairly_active_minutes',
+            'lightly_active_minutes',
+            'sedentary_minutes',
+            'calories'
+        ]
 
 
 class UserSerializer(serializers.ModelSerializer):

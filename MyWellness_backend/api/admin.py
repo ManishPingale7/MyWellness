@@ -1,6 +1,7 @@
 from django.contrib import admin
-from .models import CustomUser
+from .models import CustomUser,ActivityData
 from django.contrib.auth.admin import UserAdmin
+
 
 class CustomUserAdmin(UserAdmin):
     model = CustomUser
@@ -10,3 +11,4 @@ class CustomUserAdmin(UserAdmin):
     ordering = ['username']
 
 admin.site.register(CustomUser, CustomUserAdmin)
+admin.site.register(ActivityData)
