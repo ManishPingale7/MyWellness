@@ -1,9 +1,13 @@
+from django.contrib.auth import authenticate
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from rest_framework_simplejwt.tokens import RefreshToken
-from rest_framework_simplejwt.authentication import JWTAuthentication
-from rest_framework.permissions import IsAuthenticated
+from rest_framework_simplejwt.tokens import AccessToken
+from .serializers import UserSerializer
+
+from rest_framework import status
+from rest_framework.response import Response
+from rest_framework.views import APIView
 from .serializers import UserSerializer
 from django.contrib.auth import get_user_model
 from .utils import calculate_bmi
@@ -92,17 +96,31 @@ class SignupView(APIView):
         if serializer.is_valid():
             user_data = serializer.save()
             return Response({
-                'sucess': True,
-                'refresh': user_data['refresh'],
-                'access': user_data['access'],
-                'user_id': user_data['user_id']
+ 
+                'success': True,
+                'access': user_data.get('access'),
+                'user_id': user_data.get('user_id') 
             }, status=status.HTTP_201_CREATED)
         return Response({'success': False, 'errors': serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
 
-
 class SigninView(APIView):
-    authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated]
+    def post(self, request):
+        username = request.data.get('username')
+        password = request.data.get('password')
 
-    def get(self, request):
-        return Response({'success': True, "message": "Logged in successfully"}, status=status.HTTP_200_OK)
+        if not username or not password:
+            return Response(
+                {'error': 'Username and password are required.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        user = authenticate(username=username, password=password)
+        if not user:
+            return Response(
+                {'error': 'Invalid username or password.'},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+        access_token = AccessToken.for_user(user)
+        
+        return Response({'access': str(access_token), "success": True}, status=status.HTTP_200_OK)
+
