@@ -14,7 +14,34 @@ from .utils import calculate_bmi
 import joblib
 import os
 from django.conf import settings
+from rest_framework.permissions import IsAuthenticated
+from rest_framework_simplejwt.authentication import JWTAuthentication
 import pandas as pd
+
+# Define module-level variables for caching
+MODEL = None
+CSV_DF = None
+
+
+def load_model():
+    global MODEL
+    if MODEL is None:
+        model_path = os.path.join(
+            settings.BASE_DIR, "ML", "model_pipeline.joblib")
+        MODEL = joblib.load(model_path)
+    return MODEL
+
+
+def load_csv():
+    global CSV_DF
+    if CSV_DF is None:
+        csv_path = os.path.join(settings.BASE_DIR, "ML", "sleep_disorder.csv")
+        # Optionally, only load the required columns to speed up reading:
+        CSV_DF = pd.read_csv(csv_path, usecols=[
+            "Sleep Duration", "Quality of Sleep", "Physical Activity Level",
+            "Heart Rate", "Daily Steps", "systolic", "diastolic"
+        ]) 
+    return CSV_DF
 
 
 class PredictSleepDisorderView(APIView):
@@ -25,7 +52,78 @@ class PredictSleepDisorderView(APIView):
     # [ STATIC - AGE,BMI_CODE,GENDER_CODE,OCCUPATION_CODE,
     # Sleep Duration,Quality of Sleep,Physical Activity Level,Heart Rate,Daily Steps,
     # systolic,diastolic]
+
+    
+
     def get(self, request):
+        try:
+            # Retrieve user data from request.user
+            bmi_cat = calculate_bmi(
+                request.user.weight, request.user.height)[1]
+            age = request.user.age
+            gender = request.user.gender
+            occupation = request.user.occupation
+
+            # Retrieve health data from the cached CSV
+            df = load_csv()
+            try:
+                user_health_row = df.loc[request.user.id]
+            except KeyError:
+                return Response({
+                    'success': False,
+                    'message': 'User health data not found in dataset.'
+                }, status=status.HTTP_404_NOT_FOUND)
+
+            sleep_duration = user_health_row["Sleep Duration"]
+            quality_of_sleep = user_health_row["Quality of Sleep"]
+            physical_activity_level = user_health_row["Physical Activity Level"]
+            heart_rate = user_health_row["Heart Rate"]
+            daily_steps = user_health_row["Daily Steps"]
+            systolic = user_health_row["systolic"]
+            diastolic = user_health_row["diastolic"]
+
+            user_data_df = pd.DataFrame([[
+                gender,
+                age,
+                occupation,
+                sleep_duration,
+                quality_of_sleep,
+                physical_activity_level,
+                bmi_cat,
+                heart_rate,
+                daily_steps,
+                systolic,
+                diastolic
+            ]], columns=[
+                'Gender',
+                'Age',
+                'Occupation',
+                'Sleep Duration',
+                'Quality of Sleep',
+                'Physical Activity Level',
+                'BMI Category',
+                'Heart Rate',
+                'Daily Steps',
+                'systolic',
+                'diastolic'
+            ])
+
+            # Load the model from the cached version and predict
+            model = load_model()
+            prediction = model.predict(user_data_df)
+
+            return Response({
+                'success': True,
+                'prediction': prediction[0],
+                'message': 'Sleep disorder predicted successfully'
+            }, status=status.HTTP_200_OK)
+        except Exception as e:
+            # Log exception details in production (using Django logging, for instance)
+            return Response({
+                'success': False,
+                'message': f'An error occurred during prediction: {str(e)}'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
 
         # Get the data form + user DB
         bmi_cat = calculate_bmi(request.user.weight,request.user.height)[1]
@@ -38,7 +136,7 @@ class PredictSleepDisorderView(APIView):
             os.path.join(
                 settings.BASE_DIR, "ML", "sleep_disorder.csv")
         )
-        user_health_row = df.loc[2] #request.user.id]
+        user_health_row = df.loc[request.user.id] #request.user.id]
         sleep_duration = user_health_row["Sleep Duration"]
         quality_of_sleep = user_health_row["Quality of Sleep"]
         physical_activity_level = user_health_row["Physical Activity Level"]
@@ -46,8 +144,6 @@ class PredictSleepDisorderView(APIView):
         daily_steps = user_health_row["Daily Steps"]
         systolic = user_health_row["systolic"]
         diastolic = user_health_row["diastolic"]
-
-        print("Sleep Duration: ", type(sleep_duration),"\n\n",user_health_row)
 
         # Load the model
         model_path = os.path.join(
@@ -85,7 +181,7 @@ class PredictSleepDisorderView(APIView):
 
         return Response({
             'success': True,
-            "prediction":prediction,
+            "prediction":prediction[0],
             'message': 'Sleep disorder predicted successfully'
         }, status=status.HTTP_200_OK)
 
@@ -96,7 +192,6 @@ class SignupView(APIView):
         if serializer.is_valid():
             user_data = serializer.save()
             return Response({
- 
                 'success': True,
                 'access': user_data.get('access'),
                 'user_id': user_data.get('user_id') 
