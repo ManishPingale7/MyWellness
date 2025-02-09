@@ -3,6 +3,8 @@ import os
 import requests
 from dotenv import load_dotenv
 load_dotenv()
+import re
+import json
 
 #this is the langflow Physical Activity Recommendation code
 
@@ -151,10 +153,10 @@ def calculate_bmi(weight, height):
     :param height: Height in centimeters (cm)
     :return: BMI value and category
     """
-    height_m = height / 100  # Convert cm to meters
-    bmi = weight / (height_m ** 2)  # BMI formula
+    height_m = height / 100  
+    bmi = weight / (height_m ** 2)  
 
-    # Custom BMI categories
+    
     if bmi < 18.5:
         category = "Normal"
     elif 18.5 <= bmi < 25:
@@ -166,3 +168,33 @@ def calculate_bmi(weight, height):
 
     return round(bmi, 2), category
 
+
+def extract_json_from_response_physical(text: str):
+    try:
+        return json.loads(text)
+    except Exception:
+        pattern = r"```json\s*(\{.*?\})\s*```"
+        match = re.search(pattern, text, re.DOTALL)
+        if match:
+            json_str = match.group(1)
+            try:
+                return json.loads(json_str)
+            except Exception as e:
+                return {"error": f"Failed to parse JSON: {str(e)}"}
+    return text
+
+
+def extract_json_from_response_sleep(text: str):
+    
+    pattern = r'```json\s*([\s\S]*?)\s*```'  
+
+    matches = re.findall(pattern, text)
+
+    json_data = []
+    for match in matches:
+        try:
+            json_data.append(json.loads(match))  
+        except json.JSONDecodeError:
+            continue  
+
+    return json_data if json_data else text  
