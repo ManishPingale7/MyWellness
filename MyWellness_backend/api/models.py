@@ -2,7 +2,7 @@ from django.contrib.auth.models import AbstractUser
 from django.db import models
 
 class CustomUser(AbstractUser):
-    name = models.CharField(max_length=255)
+    name = models.CharField(max_length=255, null=True, blank=True)
     age = models.PositiveIntegerField(null=True, blank=True)
     gender = models.CharField(max_length=10, choices=[('Male', 'Male'), 
                                                       ('Female', 'Female'), ('Other', 'Other')], null=True, blank=True)
