@@ -4,20 +4,23 @@ import re
 import joblib
 import pandas as pd
 from dotenv import load_dotenv
+from datetime import datetime, timedelta
+from .models import ActivityData
+import logging
 from django.conf import settings
 from django.contrib.auth import authenticate, get_user_model
 from rest_framework import status
-from rest_framework.decorators import api_view
+from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework_simplejwt.tokens import AccessToken
 from rest_framework.views import APIView
-from .serializers import UserSerializer
+from .serializers import UserSerializer,ActivityDataSerializer
 from .utils import run_flow_physical, run_flow_chat, run_flow_sleep, calculate_bmi, extract_json_from_response_physical, extract_json_from_response_sleep
 
 load_dotenv()
-
+logger = logging.getLogger(__name__)
 MODEL = None
 CSV_DF = None
 
@@ -37,6 +40,88 @@ def load_csv():
             "Heart Rate", "Daily Steps", "systolic", "diastolic"
         ]) 
     return CSV_DF
+
+
+class PredictSleepDisorderView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    #     Required values:
+    # [ STATIC - AGE,BMI_CODE,GENDER_CODE,OCCUPATION_CODE,
+    # Sleep Duration,Quality of Sleep,Physical Activity Level,Heart Rate,Daily Steps,
+    # systolic,diastolic]
+
+    def get(self, request):
+        try:
+            # Retrieve user data from request.user
+            bmi_cat = calculate_bmi(
+                request.user.weight, request.user.height)[1]
+            age = request.user.age
+            gender = request.user.gender
+            occupation = request.user.occupation
+
+            # Retrieve health data from the cached CSV
+            df = load_csv()
+            try:
+                user_health_row = df.loc[request.user.id]
+            except KeyError:
+                return Response({
+                    'success': False,
+                    'message': 'User health data not found in dataset.'
+                }, status=status.HTTP_404_NOT_FOUND)
+
+            sleep_duration = user_health_row["Sleep Duration"]
+            quality_of_sleep = user_health_row["Quality of Sleep"]
+            physical_activity_level = user_health_row["Physical Activity Level"]
+            heart_rate = user_health_row["Heart Rate"]
+            daily_steps = user_health_row["Daily Steps"]
+            systolic = user_health_row["systolic"]
+            diastolic = user_health_row["diastolic"]
+
+            user_data_df = pd.DataFrame([[
+                gender,
+                age,
+                occupation,
+                sleep_duration,
+                quality_of_sleep,
+                physical_activity_level,
+                bmi_cat,
+                heart_rate,
+                daily_steps,
+                systolic,
+                diastolic
+            ]], columns=[
+                'Gender',
+                'Age',
+                'Occupation',
+                'Sleep Duration',
+                'Quality of Sleep',
+                'Physical Activity Level',
+                'BMI Category',
+                'Heart Rate',
+                'Daily Steps',
+                'systolic',
+                'diastolic'
+            ])
+
+            # Load the model from the cached version and predict
+            model = load_model()
+            print(user_data_df)
+            prediction = model.predict(user_data_df)
+
+            return Response({
+                'success': True,
+                'prediction': prediction[0],
+                'message': 'Sleep disorder predicted successfully'
+            }, status=status.HTTP_200_OK)
+        except Exception as e:
+            # Log exception details in production (using Django logging, for instance)
+            return Response({
+                'success': False,
+                'message': f'An error occurred during prediction: {str(e)}'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+
 
 class SignupView(APIView):
     def post(self, request):
@@ -93,6 +178,108 @@ class SigninView(APIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
+
+@api_view(["GET"])
+@authentication_classes([JWTAuthentication])  # JWT Authentication
+@permission_classes([IsAuthenticated])  # Ensure the user is authenticated
+def day_activity(request,date):
+    try:
+        if not date:
+            return Response(
+                {"error": "The 'date' query parameter is required and cannot be empty."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            date = datetime.strptime(date, "%Y-%m-%d").date()
+        except ValueError:
+            return Response(
+                {"error": "Invalid date format. Please use 'YYYY-MM-DD'."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        user_id = request.user.id
+        if user_id is None:
+            return Response({'error': 'You are not authorized to access this data'}, status=status.HTTP_403_FORBIDDEN)
+
+        try:
+            activity = ActivityData.objects.get(
+                user_id=user_id, activity_date=date)
+        except ActivityData.DoesNotExist:
+            return Response(
+                {"error": "No data found for the specified user and date."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        serializer = ActivityDataSerializer(activity)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    except Exception as e:
+        return Response(
+            {"error": "An unexpected error occurred.", "details": str(e)},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+
+@api_view(["GET"])
+@authentication_classes([JWTAuthentication])  
+@permission_classes([IsAuthenticated])  
+def week_activity(request):
+    start_date_str = request.query_params.get("start_date", "").strip()
+    end_date_str = request.query_params.get("end_date", "").strip()
+
+    # Check params
+    if not start_date_str or not end_date_str:
+        return Response(
+            {"error": "The 'start_date' and 'end_date' query parameters are required."},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    try:
+        # Parse & check dates
+        start_date = datetime.strptime(start_date_str, "%Y-%m-%d").date()
+        end_date = datetime.strptime(end_date_str, "%Y-%m-%d").date()
+
+        if start_date > end_date:
+            return Response(
+                {"error": "'start_date' cannot be later than 'end_date'."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+    except ValueError:
+        return Response(
+            {"error": "Invalid date format. Please use 'YYYY-MM-DD'."},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    user_id = request.user.id
+    if not user_id:
+        return Response({'error': 'You are not authorized to access this data'}, status=status.HTTP_403_FORBIDDEN)
+
+    # List to store all daily data
+    daily_data = []
+
+    # Loop through all dates 
+    current_date = start_date
+    while current_date <= end_date:
+        try:
+            # Fetch activity for current date
+            activity = ActivityData.objects.get(
+                user_id=user_id, activity_date=current_date)
+            serializer = ActivityDataSerializer(activity)
+            daily_data.append(serializer.data)
+
+        except ActivityData.DoesNotExist:
+            logger.warning(
+                f"Data not found for user {user_id} on {current_date}, skipping.")
+
+        # Move to next day
+        current_date += timedelta(days=1)
+
+    # Return data for the specified week
+    return Response(daily_data, status=status.HTTP_200_OK)
+
+ 
 @api_view(["POST"])
 def chatbot(request):
     try:
